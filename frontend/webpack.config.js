@@ -42,7 +42,7 @@ webpackConfig = merge(webpackConfig, {
                 test: /\.jsx?$/,
                 exclude: /node_modules/,
                 loaders: [
-                    'react-hot',
+                    'react-hot-loader/webpack',
                     'babel?presets[]=es2015,presets[]=es2016,presets[]=react,plugins[]=syntax-trailing-function-commas,plugins[]=transform-runtime,plugins[]=transform-class-properties,plugins[]=transform-object-rest-spread'
                 ]
             },
@@ -53,9 +53,9 @@ webpackConfig = merge(webpackConfig, {
         ]
     },
     externals: {
-      'react/addons': true,
-      'react/lib/ExecutionEnvironment': true,
-      'react/lib/ReactContext': true
+        'react/addons': true,
+        'react/lib/ExecutionEnvironment': true,
+        'react/lib/ReactContext': true
     }
 });
 
