@@ -3,6 +3,9 @@ package main
 import (
 	"fmt"
 	"io"
+	"log"
+	"os"
+	"strings"
 	"time"
 
 	"gopkg.in/fatih/set.v0"
@@ -42,6 +45,51 @@ type Connection struct {
 	watches *set.Set
 }
 
+type allocWithContainerIP struct {
+	ID                 string
+	EvalID             string
+	Name               string
+	NodeID             string
+	NodeIP             string
+	JobID              string
+	ContainerIP        string
+	Job                *api.Job
+	TaskGroup          string
+	Resources          *api.Resources
+	TaskResources      map[string]*api.Resources
+	Services           map[string]string
+	Metrics            *api.AllocationMetric
+	DesiredStatus      string
+	DesiredDescription string
+	ClientStatus       string
+	ClientDescription  string
+	TaskStates         map[string]*api.TaskState
+	CreateIndex        uint64
+	ModifyIndex        uint64
+	CreateTime         int64
+}
+
+type jobWithNomadAddrAndJenkinsURL struct {
+	Region            string
+	ID                string
+	Name              string
+	Type              string
+	Priority          int
+	AllAtOnce         bool
+	Datacenters       []string
+	Constraints       []*api.Constraint
+	TaskGroups        []*api.TaskGroup
+	Update            *api.UpdateStrategy
+	Periodic          *api.PeriodicConfig
+	Meta              map[string]string
+	Status            string
+	StatusDescription string
+	CreateIndex       uint64
+	ModifyIndex       uint64
+	NomadAddr         string
+	JenkinsURL        string
+}
+
 // NewConnection creates a new connection.
 func NewConnection(hub *Hub, socket *websocket.Conn) *Connection {
 	return &Connection{
@@ -58,6 +106,7 @@ func (c *Connection) writePump() {
 	defer func() {
 		c.socket.Close()
 	}()
+
 	for {
 		action, ok := <-c.send
 		if !ok {
@@ -142,16 +191,14 @@ func (c *Connection) Handle() {
 
 func (c *Connection) watchAlloc(action Action) {
 	allocID := action.Payload.(string)
-
 	defer func() {
 		c.watches.Remove(allocID)
 		logger.Infof("Stopped watching alloc with id: %s", allocID)
 	}()
 	c.watches.Add(allocID)
 
-	logger.Infof("Started watching alloc with id: %s", allocID)
-
 	q := &api.QueryOptions{WaitIndex: 1}
+	queryOptionsForNode := &api.QueryOptions{WaitIndex: 1}
 	for {
 		select {
 		case <-c.destroyCh:
@@ -163,11 +210,91 @@ func (c *Connection) watchAlloc(action Action) {
 				time.Sleep(10 * time.Second)
 				continue
 			}
+
+			consulAddr := os.Getenv("CONSUL_ADDR")
+			consulClient, err := NewConsulClient(consulAddr)
+			if err != nil {
+				log.Printf("get consul client error: %v", err)
+			}
+
+			services, _, err := consulClient.Catalog().Services(nil)
+			if err != nil {
+				log.Printf("Cannot get services on consul err: %v", err)
+			}
+
+			alloInfo, _, err := c.hub.nomad.Client.Allocations().Info(allocID, nil)
+			log.Printf("allo id: %v", alloInfo.ID)
+			if err != nil {
+				log.Printf("Get allocation info err: %v", err)
+			}
+
+			containerIP := ""
+			for service := range services {
+				for _, tag := range services[service] {
+					if tag == "NOMAD-ALLOC-ID--"+allocID {
+						servs, _, err := consulClient.Health().Service(service, "NOMAD-ALLOC-ID--"+allocID, true, nil)
+						if err != nil {
+							log.Printf("err : %v", err)
+						}
+						for id, serv := range servs {
+							containerIP = serv.Service.Address
+							log.Printf("%v, contiv ip: %v\n", id, containerIP)
+						}
+					}
+				}
+			}
+
+			// get allocation's node IP
+			node, metaForNode, err := c.hub.nomad.Client.Nodes().Info(alloc.NodeID, queryOptionsForNode)
+			var nodeIP string
+
+			if err != nil {
+				logger.Errorf("connection: unable to fetch info of node [%s]: %s", alloc.NodeID, err.Error())
+			} else {
+				// get rid of the last ":", which is the port number.
+				lastColon := strings.LastIndex(node.HTTPAddr, ":")
+				if lastColon == -1 {
+					nodeIP = node.HTTPAddr
+				} else {
+					nodeIP = node.HTTPAddr[:lastColon]
+				}
+			}
+
 			if !c.watches.Has(allocID) {
 				return
 			}
-			c.send <- &Action{Type: fetchedAlloc, Payload: alloc}
+			resultPayload := allocWithContainerIP{
+				ID:                 alloc.ID,
+				EvalID:             alloc.EvalID,
+				Name:               alloc.Name,
+				NodeID:             alloc.NodeID,
+				NodeIP:             nodeIP,
+				JobID:              alloc.JobID,
+				ContainerIP:        containerIP,
+				Job:                alloc.Job,
+				TaskGroup:          alloc.TaskGroup,
+				Resources:          alloc.Resources,
+				TaskResources:      alloc.TaskResources,
+				Services:           alloc.Services,
+				Metrics:            alloc.Metrics,
+				DesiredStatus:      alloc.DesiredStatus,
+				DesiredDescription: alloc.DesiredDescription,
+				ClientStatus:       alloc.ClientStatus,
+				ClientDescription:  alloc.ClientDescription,
+				TaskStates:         alloc.TaskStates,
+				CreateIndex:        alloc.CreateIndex,
+				ModifyIndex:        alloc.ModifyIndex,
+				CreateTime:         alloc.CreateTime,
+			}
+			c.send <- &Action{Type: fetchedAlloc, Payload: resultPayload}
 
+			w := metaForNode.LastIndex
+			if queryOptionsForNode.WaitIndex > metaForNode.LastIndex {
+				w = queryOptionsForNode.WaitIndex
+			}
+			queryOptionsForNode = &api.QueryOptions{WaitIndex: w}
+
+			// set wait index for node queries:
 			waitIndex := meta.LastIndex
 			if q.WaitIndex > meta.LastIndex {
 				waitIndex = q.WaitIndex
@@ -267,8 +394,8 @@ func (c *Connection) fetchNode(action Action) {
 }
 
 func (c *Connection) watchNode(action Action) {
+	log.Printf("type is : %v", action.Payload.(string))
 	nodeID := action.Payload.(string)
-
 	defer func() {
 		c.watches.Remove(nodeID)
 		logger.Infof("Stopped watching node with id: %s", nodeID)
@@ -329,7 +456,35 @@ func (c *Connection) watchJob(action Action) {
 			if !c.watches.Has(jobID) {
 				return
 			}
-			c.send <- &Action{Type: fetchedJob, Payload: job}
+			nomadAddr := os.Getenv("NOMAD_ADDR")
+			nomadAddrArray := strings.Split(nomadAddr, ":")
+			pureAddrArray := strings.Split(nomadAddrArray[1], "/")
+			pureAddr := pureAddrArray[2]
+
+			jenkinsURL := os.Getenv("JENKINS_BASE_URL")
+
+			resultPayload := jobWithNomadAddrAndJenkinsURL{
+				Region:            job.Region,
+				ID:                job.ID,
+				Name:              job.Name,
+				Type:              job.Type,
+				Priority:          job.Priority,
+				AllAtOnce:         job.AllAtOnce,
+				Datacenters:       job.Datacenters,
+				Constraints:       job.Constraints,
+				TaskGroups:        job.TaskGroups,
+				Update:            job.Update,
+				Periodic:          job.Periodic,
+				Meta:              job.Meta,
+				Status:            job.Status,
+				StatusDescription: job.StatusDescription,
+				CreateIndex:       job.CreateIndex,
+				ModifyIndex:       job.ModifyIndex,
+				NomadAddr:         pureAddr,
+				JenkinsURL:        jenkinsURL,
+			}
+
+			c.send <- &Action{Type: fetchedJob, Payload: resultPayload}
 
 			waitIndex := meta.LastIndex
 			if q.WaitIndex > meta.LastIndex {
