@@ -35,6 +35,9 @@ const (
 	unwatchedFile    = "UNWATCHED_FILE"
 	fetchedFile      = "FETCHED_FILE"
 	fileStreamFailed = "FILE_STREAM_FAILED"
+	watchUsage       = "WATCH_USAGE"
+	fetchUsage       = "FETCH_USAGE"
+	fetchedUsage     = "FETCHED_USAGE"
 )
 
 // Action represents a Redux action that is dispatched or received from the store

@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"os"
 	"syscall"
-	//	"time"
+	"time"
 
 	"net/http"
 
@@ -99,25 +99,25 @@ func main() {
 	go nomad.watchEvals()
 	go nomad.watchJobs()
 	go nomad.watchNodes()
-	go nomad.watchMembers()
+	go nomad.watchUsages()
 
 	hub := NewHub(nomad, broadcast)
 	go hub.Run()
 
 	router := mux.NewRouter()
 
-	//	myAssetFS := assetFS()
+	myAssetFS := assetFS()
 
 	router.HandleFunc("/ws", hub.Handler)
 	router.HandleFunc("/download/{path:.*}", nomad.downloadFile)
-	//	router.PathPrefix("/static").Handler(http.FileServer(myAssetFS))
-	//	router.PathPrefix("/").HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-	//		if bs, err := myAssetFS.Open("/index.html"); err != nil {
-	//			logger.Infof("%s", err)
-	//		} else {
-	//			http.ServeContent(w, r, "index.html", time.Now(), bs)
-	//		}
-	//	})
+	router.PathPrefix("/static").Handler(http.FileServer(myAssetFS))
+	router.PathPrefix("/").HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if bs, err := myAssetFS.Open("/index.html"); err != nil {
+			logger.Infof("%s", err)
+		} else {
+			http.ServeContent(w, r, "index.html", time.Now(), bs)
+		}
+	})
 
 	logger.Infof("Listening ...")
 	err = http.ListenAndServe(cfg.ListenAddress, router)

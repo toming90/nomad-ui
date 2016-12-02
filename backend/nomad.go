@@ -11,10 +11,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
+	"os"
 
 	"github.com/gorilla/mux"
 	"github.com/hashicorp/nomad/api"
 	uuid "github.com/satori/go.uuid"
+
+	"math"
 )
 
 const (
@@ -27,6 +31,21 @@ type AgentMemberWithID struct {
 	api.AgentMember
 	ID     string
 	Leader bool
+}
+
+type NomadUIJob struct {
+	ID                string
+	ParentID          string
+	Name              string
+	Type              string
+	Priority          int
+	Status            string
+	StatusDescription string
+	JobSummary        *api.JobSummary
+	CreateIndex       uint64
+	ModifyIndex       uint64
+	JobModifyIndex    uint64
+	DefaultPodName    string
 }
 
 func NewAgentMemberWithID(member *api.AgentMember) (*AgentMemberWithID, error) {
@@ -66,13 +85,23 @@ func NewAgentMemberWithID(member *api.AgentMember) (*AgentMemberWithID, error) {
 type Nomad struct {
 	Client *api.Client
 
-	allocs  []*api.AllocationListStub
-	evals   []*api.Evaluation
-	jobs    []*api.JobListStub
-	nodes   []*api.NodeListStub
-	members []*AgentMemberWithID
+	allocs     []*api.AllocationListStub
+	evals      []*api.Evaluation
+	nodes      []*api.NodeListStub
+	members    []*AgentMemberWithID
+	usage      *NomadClusterUsage
+	nomad_jobs []*NomadUIJob
+	nomad_addr string
+	updateCh   chan *Action
+}
 
-	updateCh chan *Action
+type NomadClusterUsage struct {
+	CpuAvailable  float64
+	CpuUsed       float64
+	MemAvailable  float64
+	MemUsed       float64
+	DiskAvailable float64
+	DiskUsed      float64
 }
 
 // NewNomad configures the Nomad API client and initializes the internal state.
@@ -87,24 +116,14 @@ func NewNomad(url string, updateCh chan *Action) (*Nomad, error) {
 	}
 
 	return &Nomad{
-		Client:   client,
-		updateCh: updateCh,
-		allocs:   make([]*api.AllocationListStub, 0),
-		evals:    make([]*api.Evaluation, 0),
-		nodes:    make([]*api.NodeListStub, 0),
-		members:  make([]*AgentMemberWithID, 0),
-		jobs:     make([]*api.JobListStub, 0),
+		Client:     client,
+		updateCh:   updateCh,
+		allocs:     make([]*api.AllocationListStub, 0),
+		evals:      make([]*api.Evaluation, 0),
+		nodes:      make([]*api.NodeListStub, 0),
+		members:    make([]*AgentMemberWithID, 0),
+		nomad_jobs: make([]*NomadUIJob, 0),
 	}, nil
-}
-
-// FlushAll sends the current Nomad state to the connection. This is used to pass
-// all known state to the client connection.
-func (n *Nomad) FlushAll(c *Connection) {
-	c.send <- &Action{Type: fetchedAllocs, Payload: n.allocs}
-	c.send <- &Action{Type: fetchedEvals, Payload: n.evals}
-	c.send <- &Action{Type: fetchedJobs, Payload: n.jobs}
-	c.send <- &Action{Type: fetchedNodes, Payload: n.nodes}
-	c.send <- &Action{Type: fetchedMembers, Payload: n.members}
 }
 
 // MembersWithID is used to query all of the known server members.
@@ -160,8 +179,19 @@ func (n *Nomad) MemberWithID(ID string) (*AgentMemberWithID, error) {
 	return nil, errors.New(fmt.Sprintf("Unable to find member with ID: %s", ID))
 }
 
+// FlushAll sends the current Nomad state to the connection. This is used to pass
+// all known state to the client connection.
+func (n *Nomad) FlushAll(c *Connection) {
+	c.send <- &Action{Type: fetchedAllocs, Payload: n.allocs}
+	c.send <- &Action{Type: fetchedEvals, Payload: n.evals}
+	c.send <- &Action{Type: fetchedJobs, Payload: n.nomad_jobs}
+	c.send <- &Action{Type: fetchedNodes, Payload: n.nodes}
+	c.send <- &Action{Type: fetchedMembers, Payload: n.members}
+}
+
 func (n *Nomad) watchAllocs() {
 	q := &api.QueryOptions{WaitIndex: 1}
+
 	for {
 		allocs, meta, err := n.Client.Allocations().List(q)
 		if err != nil {
@@ -169,6 +199,7 @@ func (n *Nomad) watchAllocs() {
 			time.Sleep(10 * time.Second)
 			continue
 		}
+
 		n.allocs = allocs
 		n.updateCh <- &Action{Type: fetchedAllocs, Payload: allocs}
 
@@ -204,6 +235,19 @@ func (n *Nomad) watchEvals() {
 
 func (n *Nomad) watchJobs() {
 	q := &api.QueryOptions{WaitIndex: 1}
+
+	nomadAddr := os.Getenv("NOMAD_ADDR")
+	nomadAddrArray := strings.Split(nomadAddr, ":")
+	pureAddrArray := strings.Split(nomadAddrArray[1], "/")
+	log.Printf("pureAddrArray: %v", pureAddrArray[2])
+
+	consulAddr := os.Getenv("CONSUL_ADDR")
+	log.Printf("consul Addr: %v", consulAddr)
+	consulClient, err := NewConsulClient(consulAddr)
+	if err != nil {
+		log.Printf("get consul client error: %v", err)
+	}
+
 	for {
 		jobs, meta, err := n.Client.Jobs().List(q)
 		if err != nil {
@@ -211,8 +255,59 @@ func (n *Nomad) watchJobs() {
 			time.Sleep(10 * time.Second)
 			continue
 		}
-		n.jobs = jobs
-		n.updateCh <- &Action{Type: fetchedJobs, Payload: jobs}
+
+		// get keys from deafult pod kv pairs
+		keys, _, err := consulClient.KV().Keys("cobalt/services/default-pod/", "", nil)
+		if err != nil {
+			logger.Errorf("watch: unable to fetch consul keys: %s", err)
+			time.Sleep(10 * time.Second)
+			continue
+		}
+
+		// mark job with default-pod key as DefaultPod
+		m := make(map[string]bool)
+		dpNameMap := make(map[string]string)
+
+		for _, key := range keys {
+			k, _, err := consulClient.KV().Get(key, nil)
+			if err != nil {
+				logger.Errorf("watch: unable to fetch key: %v", key)
+			}
+			log.Printf("k value:%v", string(k.Value))
+			m[string(k.Value)] = true
+			keyArray := strings.Split(key, "/")
+
+			dpNameMap[string(k.Value)] = keyArray[len(keyArray)-1]
+
+		}
+		var nomad_jobs []*NomadUIJob
+		for _, job := range jobs {
+
+			nomad_job := &NomadUIJob{
+				ID:                job.ID,
+				ParentID:          job.ParentID,
+				Name:              job.Name,
+				Type:              job.Type,
+				Priority:          job.Priority,
+				Status:            job.Status,
+				StatusDescription: job.StatusDescription,
+				JobSummary:        job.JobSummary,
+				CreateIndex:       job.CreateIndex,
+				ModifyIndex:       job.ModifyIndex,
+				JobModifyIndex:    job.JobModifyIndex,
+			}
+
+			shortJobID := nomad_job.ID[:strings.LastIndex(nomad_job.ID, "_")]
+
+			if _, ok := m[shortJobID]; ok {
+				nomad_job.DefaultPodName = dpNameMap[shortJobID]
+			}
+
+			nomad_jobs = append(nomad_jobs, nomad_job)
+		}
+
+		n.nomad_jobs = nomad_jobs
+		n.updateCh <- &Action{Type: fetchedJobs, Payload: nomad_jobs}
 
 		// Guard for zero LastIndex in case of timeout
 		waitIndex := meta.LastIndex
@@ -234,7 +329,6 @@ func (n *Nomad) watchNodes() {
 		}
 		n.nodes = nodes
 		n.updateCh <- &Action{Type: fetchedNodes, Payload: nodes}
-
 		// Guard for zero LastIndex in case of timeout
 		waitIndex := meta.LastIndex
 		if q.WaitIndex > meta.LastIndex {
@@ -302,4 +396,141 @@ func (n *Nomad) downloadFile(w http.ResponseWriter, r *http.Request) {
 	logger.Infof("download: streaming %q to client", path)
 
 	io.Copy(w, file)
+}
+
+func (n *Nomad) watchUsages() {
+	q := &api.QueryOptions{WaitIndex: 1}
+	for {
+		nodes, _, err := n.Client.Nodes().List(q)
+		if err != nil {
+			logger.Errorf("watch: unable to fetch nodes: %s", err)
+			time.Sleep(10 * time.Second)
+			continue
+		}
+
+		var cpuUsed float64 = 0.0
+		var cpuTotal float64 = 0.0
+		var memTotal float64 = 0.0
+		var memUsed float64 = 0.0
+		var diskTotal float64 = 0.0
+		var diskUsed float64 = 0.0
+
+		for _, node := range nodes {
+			host, _, e := n.Client.Nodes().Info(node.ID, q)
+			if e != nil {
+				logger.Errorf("watch: unable to fetch host: %s", e)
+				time.Sleep(10 * time.Second)
+				continue
+			}
+			cpuTotal += float64(host.Resources.CPU) / 1024.0
+			memTotal += float64(host.Resources.MemoryMB) / 1024.0
+			diskTotal += float64(host.Resources.DiskMB) / 1024.0
+
+		}
+
+		allocs, _, err := n.Client.Allocations().List(nil)
+		if err != nil {
+			logger.Errorf("watch: unable to fetch allocs: %s", err)
+			time.Sleep(10 * time.Second)
+			continue
+		}
+
+		for _, alloc := range allocs {
+			allocation, _, e := n.Client.Allocations().Info(alloc.ID, nil)
+			if e != nil {
+				logger.Errorf("watch: unable to fetch allocation: %s", e)
+				time.Sleep(10 * time.Second)
+				continue
+			}
+			if allocation.ClientStatus == "running" {
+				cpuUsed += float64(allocation.Resources.CPU) / 1024.0
+				memUsed += float64(allocation.Resources.MemoryMB) / 1024.0
+				diskUsed += float64(allocation.Resources.DiskMB) / 1024.0
+			}
+		}
+
+		usage := &NomadClusterUsage{
+			CpuAvailable:  toFixed(cpuTotal-cpuUsed, 2),
+			CpuUsed:       toFixed(cpuUsed, 2),
+			MemAvailable:  toFixed(memTotal-memUsed, 2),
+			MemUsed:       toFixed(memUsed, 2),
+			DiskAvailable: toFixed(diskTotal-diskUsed, 2),
+			DiskUsed:      toFixed(diskUsed, 2),
+		}
+
+		n.usage = usage
+		n.updateCh <- &Action{Type: fetchedUsage, Payload: usage}
+
+		time.Sleep(10 * time.Second)
+	}
+}
+
+func (n *Nomad) watchUsagesWithNewNomadAPI() {
+	q := &api.QueryOptions{WaitIndex: 1}
+	for {
+		nodes, _, err := n.Client.Nodes().List(q)
+		if err != nil {
+			logger.Errorf("watch: unable to fetch nodes: %s", err)
+			time.Sleep(10 * time.Second)
+			continue
+		}
+
+		var cpuUsed float64 = 0.0
+		var cpuTotal float64 = 0.0
+		var memAvailable float64 = 0
+		var memUsed float64 = 0
+		var diskAvailable float64 = 0.0
+		var diskUsed float64 = 0.0
+
+		for _, node := range nodes {
+			host, _, e := n.Client.Nodes().Info(node.ID, q)
+			if e != nil {
+				logger.Errorf("watch: unable to fetch host: %s", e)
+				time.Sleep(10 * time.Second)
+				continue
+			}
+			cpuTotal += float64(host.Resources.CPU) / 1024.0
+			hostStat, e := n.Client.Nodes().Stats(node.ID, q)
+			if e != nil {
+				logger.Errorf("watch: unable to fetch host stats: %s", e)
+				time.Sleep(10 * time.Second)
+				continue
+			}
+
+			// Byte -> MB -> GB
+			memAvailable += float64(hostStat.Memory.Available) / 1024.0 / 1024.0 / 1024.0
+			memUsed += float64(hostStat.Memory.Used) / 1024.0 / 1024.0 / 1024.0
+
+			// Byte -> MB -> GB
+			for _, disk := range hostStat.DiskStats {
+				diskAvailable += float64(disk.Available) / 1024.0 / 1024.0 / 1024.0
+
+				diskUsed += float64(disk.Used) / 1024.0 / 1024.0 / 1024.0
+			}
+
+			// GHz
+			cpuUsed += hostStat.CPUTicksConsumed / 1024.0
+		}
+		usage := &NomadClusterUsage{
+			CpuAvailable:  toFixed(cpuTotal-cpuUsed, 2),
+			CpuUsed:       toFixed(cpuUsed, 2),
+			MemAvailable:  toFixed(memAvailable, 2),
+			MemUsed:       toFixed(memUsed, 2),
+			DiskAvailable: toFixed(diskAvailable, 2),
+			DiskUsed:      toFixed(diskUsed, 2),
+		}
+		n.usage = usage
+		n.updateCh <- &Action{Type: fetchedUsage, Payload: usage}
+
+		time.Sleep(10 * time.Second)
+	}
+}
+
+func toFixed(num float64, precision int) float64 {
+	output := math.Pow(10, float64(precision))
+	return float64(round(num*output)) / output
+}
+
+func round(num float64) int {
+	return int(num + math.Copysign(0.5, num))
 }
