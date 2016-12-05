@@ -1,31 +1,40 @@
-import React, { Component, PropTypes } from 'react';
-import { Panel, Accordion, Table } from 'react-bootstrap';
-import { connect } from 'react-redux';
+import React, {
+  Component,
+  PropTypes
+} from 'react';
+import {
+  Panel,
+  Accordion,
+  Table
+} from 'react-bootstrap';
+import {
+  connect
+} from 'react-redux';
 import NomadLink from '../link';
 import Meta from '../meta';
 import FormatTime from '../format/time';
 
 const allocProps = [
-    'ID',
-    'Name',
-    'ClientStatus',
-    'ClientDescription',
-    'DesiredStatus',
-    'DesiredDescription',
+  'ID',
+  'Name',
+  'ClientStatus',
+  'ClientDescription',
+  'DesiredStatus',
+  'DesiredDescription',
 ];
 
 class AllocationInfo extends Component {
 
-    static taskState(allocation, name, states) {
-        const title = (
-          <h3>
+  static taskState(allocation, name, states) {
+    const title = (
+      <h3>
             Task state for {allocation.JobID}.{allocation.TaskGroup}.{name} (final state: {states.State})
           </h3>
-        );
-        let lastEventTime = null;
+    );
+    let lastEventTime = null;
 
-        return (
-          <Panel key={ name } header={ title }>
+    return (
+      <Panel key={ name } header={ title }>
             <div className="content table-responsive table-full-width">
               <Table striped hover style={{ tableLayout: 'fixed' }}>
                 <thead>
@@ -82,36 +91,38 @@ class AllocationInfo extends Component {
               </Table>
             </div>
           </Panel>
-        );
-    }
+    );
+  }
 
-    render() {
-        const allocation = this.props.allocation;
-        const jobId = allocation.JobID;
-        const nodeId = allocation.NodeID;
-        const taskGroupId = allocation.TaskGroupId;
+  render() {
+    const allocation = this.props.allocation;
+    const jobId = allocation.JobID;
+    const nodeId = allocation.NodeID;
+    const taskGroupId = allocation.TaskGroupId;
 
-        const allocValues = {};
-        allocProps.map((allocProp) => {
-            allocValues[allocProp] = allocation[allocProp];
-            return null;
-        });
+    const allocValues = {};
+    allocProps.map((allocProp) => {
+      allocValues[allocProp] = allocation[allocProp];
+      return null;
+    });
 
-        allocValues.Job = <NomadLink jobId={ jobId } />;
-        allocValues.TaskGroup = (
-          <NomadLink jobId={ jobId } taskGroupId={ taskGroupId } >
+    allocValues.Job = <NomadLink jobId={ jobId } />;
+    allocValues.TaskGroup = (
+      <NomadLink jobId={ jobId } taskGroupId={ taskGroupId } >
             {allocation.TaskGroup}
           </NomadLink>
-        );
-        allocValues.Node = <NomadLink nodeId={ nodeId } nodeList={ this.props.nodes } />;
+    );
+    allocValues.Node = <NomadLink nodeId={ nodeId } nodeList={ this.props.nodes } />
+    allocValues.ContainerIP = allocation.ContainerIP;
+    allocValues.NodeIP = allocation.NodeIP;
 
-        const states = [];
-        Object.keys(allocation.TaskStates || {}).forEach((key) => {
-            states.push(AllocationInfo.taskState(allocation, key, allocation.TaskStates[key]));
-        });
+    const states = [];
+    Object.keys(allocation.TaskStates || {}).forEach((key) => {
+      states.push(AllocationInfo.taskState(allocation, key, allocation.TaskStates[key]));
+    });
 
-        return (
-          <div className="tab-pane active">
+    return (
+      <div className="tab-pane active">
             <div className="row">
               <div className="col-lg-6 col-md-6 col-sm-6 col-sx-6 tab-column">
                 <legend>Allocation Properties</legend>
@@ -125,17 +136,23 @@ class AllocationInfo extends Component {
               </div>
             </div>
           </div>
-        );
-    }
+    );
+  }
 }
 
-function mapStateToProps({ allocation, nodes }) {
-    return { allocation, nodes };
+function mapStateToProps({
+  allocation,
+  nodes
+}) {
+  return {
+    allocation,
+    nodes
+  };
 }
 
 AllocationInfo.propTypes = {
-    allocation: PropTypes.object.isRequired,
-    nodes: PropTypes.array.isRequired,
+  allocation: PropTypes.object.isRequired,
+  nodes: PropTypes.array.isRequired,
 };
 
 export default connect(mapStateToProps)(AllocationInfo);
