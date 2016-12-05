@@ -1,179 +1,193 @@
-import React, { Component, PropTypes } from 'react';
-import { DropdownButton, Glyphicon } from 'react-bootstrap';
-import { Link } from 'react-router';
+import React, {
+  Component,
+  PropTypes
+} from 'react';
+import {
+  DropdownButton,
+  Glyphicon
+} from 'react-bootstrap';
+import {
+  Link
+} from 'react-router';
 import NomadLink from '../link';
 import FormatTime from '../format/time';
 import shortUUID from '../../helpers/uuid';
-import { renderDesiredStatus, renderClientStatus } from '../../helpers/render/allocation';
+import {
+  renderDesiredStatus,
+  renderClientStatus
+} from '../../helpers/render/allocation';
 
 const getAllocationNumberFromName = (allocationName) => {
-    const match = /[\d+]/.exec(allocationName);
-    return match[0];
+  const match = /[\d+]/.exec(allocationName);
+  return match[0];
 };
 
 const optionsGlyph = <Glyphicon glyph="option-vertical" />;
 
 const jobHeaderColumn = display =>
-    (display ? <th>Job</th> : null);
+  (display ? <th>Job</th> : null);
 
 const jobColumn = (allocation, display) =>
-    (display ? <td><NomadLink jobId={ allocation.JobID } short="true" /></td> : null);
+  (display ? <td><NomadLink jobId={ allocation.JobID } short="true" /></td> : null);
 
 const clientHeaderColumn = display =>
-    (display ? <th width="120">Client</th> : null);
+  (display ? <th width="120">Client</th> : null);
 
 const clientColumn = (allocation, nodes, display) =>
-    (display ? <td><NomadLink nodeId={ allocation.NodeID } nodeList={ nodes } short="true" /></td> : null);
+  (display ? <td><NomadLink nodeId={ allocation.NodeID } nodeList={ nodes } short="true" /></td> : null);
+
+const allocationName = (allocation) =>
+  (allocation.Name.length > 14 ? <td>{ allocation.Name.substr(0, 11) + '...' }</td> : <td>{ allocation.Name }</td>);
 
 let nodeIdToNameCache = {};
 
 class AllocationList extends Component {
 
-    componentWillReceiveProps(nextProps) {
-        if (nextProps.nodes !== this.props.nodes) {
-            nodeIdToNameCache = {};
-        }
+  componentWillReceiveProps(nextProps) {
+    if (nextProps.nodes !== this.props.nodes) {
+      nodeIdToNameCache = {};
+    }
+  }
+
+  findNodeNameById(nodeId) {
+    if (nodeId in nodeIdToNameCache) {
+      return nodeIdToNameCache[nodeId];
     }
 
-    findNodeNameById(nodeId) {
-        if (nodeId in nodeIdToNameCache) {
-            return nodeIdToNameCache[nodeId];
-        }
+    const r = Object.keys(this.props.nodes)
+      .filter(node =>
+        this.props.nodes[node].ID === nodeId
+      );
 
-        const r = Object.keys(this.props.nodes)
-            .filter(node =>
-                this.props.nodes[node].ID === nodeId
-            );
-
-        if (r.length !== 0) {
-            nodeIdToNameCache[nodeId] = this.props.nodes[r].Name;
-        } else {
-            nodeIdToNameCache[nodeId] = nodeId;
-        }
-
-        return nodeIdToNameCache[nodeId];
+    if (r.length !== 0) {
+      nodeIdToNameCache[nodeId] = this.props.nodes[r].Name;
+    } else {
+      nodeIdToNameCache[nodeId] = nodeId;
     }
 
-    filteredAllocations() {
-        const query = this.props.location.query || {};
-        let allocations = this.props.allocations;
+    return nodeIdToNameCache[nodeId];
+  }
 
-        if ('status' in query) {
-            allocations = allocations.filter(allocation => allocation.ClientStatus === query.status);
-        }
+  filteredAllocations() {
+    const query = this.props.location.query || {};
+    let allocations = this.props.allocations;
 
-        if ('client' in query) {
-            allocations = allocations.filter(allocation => allocation.NodeID === query.client);
-        }
-
-        if ('job' in query) {
-            allocations = allocations.filter(allocation => allocation.JobID === query.job);
-        }
-
-        return allocations;
+    if ('status' in query) {
+      allocations = allocations.filter(allocation => allocation.ClientStatus === query.status);
     }
 
-    clientStatusFilter() {
-        const location = this.props.location;
-        const query = this.props.location.query || {};
+    if ('client' in query) {
+      allocations = allocations.filter(allocation => allocation.NodeID === query.client);
+    }
 
-        let title = 'Client Status';
-        if ('status' in query) {
-            title = <span>{title}: <code>{ query.status }</code></span>;
-        }
+    if ('job' in query) {
+      allocations = allocations.filter(allocation => allocation.JobID === query.job);
+    }
 
-        return (
-          <DropdownButton title={ title } key="filter-client-status" id="filter-client-status">
+    return allocations;
+  }
+
+  clientStatusFilter() {
+    const location = this.props.location;
+    const query = this.props.location.query || {};
+
+    let title = 'Client Status';
+    if ('status' in query) {
+      title = <span>{title}: <code>{ query.status }</code></span>;
+    }
+
+    return (
+      <DropdownButton title={ title } key="filter-client-status" id="filter-client-status">
             <li><Link to={ location.pathname } query={{ ...query, status: undefined }}>- Any -</Link></li>
             <li><Link to={ location.pathname } query={{ ...query, status: 'running' }}>Running</Link></li>
             <li><Link to={ location.pathname } query={{ ...query, status: 'complete' }}>Complete</Link></li>
             <li><Link to={ location.pathname } query={{ ...query, status: 'lost' }}>Lost</Link></li>
             <li><Link to={ location.pathname } query={{ ...query, status: 'failed' }}>Failed</Link></li>
           </DropdownButton>
-        );
+    );
+  }
+
+  jobIdFilter() {
+    const location = this.props.location;
+    const query = this.props.location.query || {};
+
+    let title = 'Job';
+    if ('job' in query) {
+      title = <span>{title}: <code>{ query.job }</code></span>;
     }
 
-    jobIdFilter() {
-        const location = this.props.location;
-        const query = this.props.location.query || {};
-
-        let title = 'Job';
-        if ('job' in query) {
-            title = <span>{title}: <code>{ query.job }</code></span>;
-        }
-
-        const jobs = this.props.allocations
-          .map((allocation) => {
-              return allocation.JobID;
-          })
-          .filter((v, i, a) => {
-              return a.indexOf(v) === i;
-          })
-          .map((job) => {
-              return (
-                <li key={ job }>
+    const jobs = this.props.allocations
+      .map((allocation) => {
+        return allocation.JobID;
+      })
+      .filter((v, i, a) => {
+        return a.indexOf(v) === i;
+      })
+      .map((job) => {
+        return (
+          <li key={ job }>
                   <Link to={ location.pathname } query={{ ...query, job }}>{ job }</Link>
                 </li>
-              );
-          });
-
-        jobs.unshift(
-          <li key="any-job"><Link to={ location.pathname } query={{ ...query, job: undefined }}>- Any -</Link></li>
         );
+      });
 
-        return (
-          <DropdownButton title={ title } key="filter-job" id="filter-job">
+    jobs.unshift(
+      <li key="any-job"><Link to={ location.pathname } query={{ ...query, job: undefined }}>- Any -</Link></li>
+    );
+
+    return (
+      <DropdownButton title={ title } key="filter-job" id="filter-job">
             { jobs }
           </DropdownButton>
-        );
+    );
+  }
+
+  clientFilter() {
+    const location = this.props.location;
+    const query = this.props.location.query || {};
+
+    let title = 'Client';
+    if ('client' in query) {
+      title = <span>{title}: <code>{ this.findNodeNameById(query.client) }</code></span>;
     }
 
-    clientFilter() {
-        const location = this.props.location;
-        const query = this.props.location.query || {};
-
-        let title = 'Client';
-        if ('client' in query) {
-            title = <span>{title}: <code>{ this.findNodeNameById(query.client) }</code></span>;
-        }
-
-        const clients = this.props.allocations
-          .map((allocation) => {
-              return allocation.NodeID;
-          })
-          .filter((v, i, a) => {
-              return a.indexOf(v) === i;
-          })
-          .map((client) => {
-              return (
-                <li key={ client }>
+    const clients = this.props.allocations
+      .map((allocation) => {
+        return allocation.NodeID;
+      })
+      .filter((v, i, a) => {
+        return a.indexOf(v) === i;
+      })
+      .map((client) => {
+        return (
+          <li key={ client }>
                   <Link to={ location.pathname } query={{ ...query, client }}>{ this.findNodeNameById(client) }</Link>
                 </li>
-              );
-          });
+        );
+      });
 
-        clients.unshift(
-          <li key="any-client">
+    clients.unshift(
+      <li key="any-client">
             <Link to={ location.pathname } query={{ ...query, client: undefined }}>- Any -</Link>
           </li>
-        );
+    );
 
-        return (
-          <DropdownButton title={ title } key="filter-client" id="filter-client">
+    return (
+      <DropdownButton title={ title } key="filter-client" id="filter-client">
             { clients }
           </DropdownButton>
-        );
-    }
+    );
+  }
 
-    render() {
-        const showJobColumn = this.props.showJobColumn;
-        const showClientColumn = this.props.showClientColumn;
-        const allocations = this.props.allocations;
-        const nodes = this.props.nodes;
-        const className = this.props.containerClassName;
+  render() {
+    const showJobColumn = this.props.showJobColumn;
+    const showClientColumn = this.props.showClientColumn;
+    const allocations = this.props.allocations;
+    const nodes = this.props.nodes;
+    const className = this.props.containerClassName;
 
-        return (
-          <div className={ className }>
+    return (
+      <div className={ className }>
             <div className="inline-pad">
               { this.clientFilter() }
               &nbsp;
@@ -188,6 +202,7 @@ class AllocationList extends Component {
                     <th width="40"></th>
                     <th width="100">ID</th>
                     { jobHeaderColumn(showJobColumn) }
+                    <th width="300">Name</th>
                     <th width="300">Task Group</th>
                     <th width="100">Status</th>
                     { clientHeaderColumn(showClientColumn) }
@@ -202,6 +217,7 @@ class AllocationList extends Component {
                           <td>{ renderClientStatus(allocation) }</td>
                           <td><NomadLink allocId={ allocation.ID } short="true" /></td>
                           { jobColumn(allocation, showJobColumn, nodes) }
+                          { allocationName(allocation) }
                           <td>
                             <NomadLink jobId={ allocation.JobID } taskGroupId={ allocation.TaskGroupId }>
                               { allocation.TaskGroup } (#{ getAllocationNumberFromName(allocation.Name) })
@@ -250,29 +266,29 @@ class AllocationList extends Component {
               </table>
             </div>
           </div>);
-    }
+  }
 }
 
 AllocationList.defaultProps = {
-    allocations: [],
-    nodes: [],
-    location: {},
+  allocations: [],
+  nodes: [],
+  location: {},
 
-    showJobColumn: true,
-    showClientColumn: true,
+  showJobColumn: true,
+  showClientColumn: true,
 
-    containerClassName: '',
+  containerClassName: '',
 };
 
 AllocationList.propTypes = {
-    allocations: PropTypes.array.isRequired,
-    nodes: PropTypes.array.isRequired,
-    location: PropTypes.object.isRequired,
+  allocations: PropTypes.array.isRequired,
+  nodes: PropTypes.array.isRequired,
+  location: PropTypes.object.isRequired,
 
-    showJobColumn: PropTypes.bool.isRequired,
-    showClientColumn: PropTypes.bool.isRequired,
+  showJobColumn: PropTypes.bool.isRequired,
+  showClientColumn: PropTypes.bool.isRequired,
 
-    containerClassName: PropTypes.string.isRequired,
+  containerClassName: PropTypes.string.isRequired,
 };
 
 export default AllocationList;

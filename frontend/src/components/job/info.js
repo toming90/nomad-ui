@@ -1,5 +1,10 @@
-import React, { Component, PropTypes } from 'react';
-import { connect } from 'react-redux';
+import React, {
+  Component,
+  PropTypes
+} from 'react';
+import {
+  connect
+} from 'react-redux';
 import NomadLink from '../link';
 import Table from '../table';
 import MetaDisplay from '../meta';
@@ -9,16 +14,42 @@ const jobProps = ['ID', 'Name', 'Region', 'Datacenters', 'Status', 'Priority'];
 
 class JobInfo extends Component {
 
-    render() {
-        const tasks = [];
-        const job = this.props.job;
-        const jobMetaBag = job.Meta || {};
+  render() {
+    const tasks = [];
+    const job = this.props.job;
+    const jobMetaBag = job.Meta || {};
 
-        // Build the task groups table
-        const taskGroups = job.TaskGroups.map((taskGroup) => {
-            taskGroup.Tasks.map((task) => {
-                tasks.push(
-                  <tr key={ task.ID }>
+    const jobPodId = () => {
+      // for some reason, the job.Meta is undefined when running this part of code.
+      // so return empty string if it is undefined to avoid crashing this page.
+      console.log(`jobPodId(): Meta is ${this.props.job.Meta}`);
+      if (this.props.job.Meta) {
+        return this.props.job.Meta["COBALT_SERVICE_NAME"] + "-" + this.props.job.Meta["COBALT_PODID"]
+      } else {
+        return ""
+      }
+    }
+
+    const actions = () => {
+      return <div>
+              <span>
+                <a href={this.props.job.JenkinsURL+'/job/Mark-As-Default/parambuild/?PODID='+jobPodId()+'&CLUSTER_IP='+this.props.job.NomadAddr} target="_blank" style={{paddingRight:"25px", margin:"25px"}}>
+                   <button type="button" className="btn btn-default">Mark As Default</button>
+                </a>
+              </span>
+              <span>
+                <a href={this.props.job.JenkinsURL+'/job/CobaltDestroy/parambuild/?COBALT_ID='+this.props.job.ID+'&CLUSTER_IP='+this.props.job.NomadAddr} target='_blank'>
+                  <button type="button" className="btn btn-default">Destroy</button>
+                </a>
+              </span>
+            </div>
+    }
+
+    // Build the task groups table
+    const taskGroups = job.TaskGroups.map((taskGroup) => {
+      taskGroup.Tasks.map((task) => {
+        tasks.push(
+          <tr key={ task.ID }>
                     <td>
                       <NomadLink jobId={ job.ID } taskGroupId={ taskGroup.ID } >
                         { taskGroup.Name }
@@ -35,13 +66,13 @@ class JobInfo extends Component {
                     <td>{ task.Resources.DiskMB }</td>
                     <td><ConstraintTable idPrefix={ task.ID } asTooltip constraints={ task.Constraints } /></td>
                   </tr>
-                );
-                return null;
-            });
+        );
+        return null;
+      });
 
-            const taskGroupMeta = taskGroup.Meta || {};
-            return (
-              <tr key={ taskGroup.ID }>
+      const taskGroupMeta = taskGroup.Meta || {};
+      return (
+        <tr key={ taskGroup.ID }>
                 <td>
                   <NomadLink jobId={ job.ID } taskGroupId={ taskGroup.ID } >
                     { taskGroup.Name }
@@ -53,11 +84,11 @@ class JobInfo extends Component {
                 <td>{ taskGroup.RestartPolicy.Mode }</td>
                 <td><ConstraintTable idPrefix={ taskGroup.ID } asTooltip constraints={ taskGroup.Constraints } /></td>
               </tr>
-            );
-        });
+      );
+    });
 
-        return (
-          <div className="tab-pane active">
+    return (
+      <div className="tab-pane active">
             <div className="row">
               <div className="col-lg-6 col-md-6 col-sm-6 col-sx-6 tab-column">
                 <legend>Job Properties</legend>
@@ -90,6 +121,13 @@ class JobInfo extends Component {
             </div>
 
             <div className="row">
+                <div className="col-lg-6 col-md-6 col-sm-12 col-sx-12 tab-column">
+                  <legend>Actions</legend>
+                  { actions() }
+              </div>
+            </div>
+
+            <div className="row">
               <div className="col-lg-12 col-md-12 col-sm-12 col-sx-12 tab-column">
                 <legend>Task Groups</legend>
                 { (taskGroups.length > 0) ?
@@ -117,25 +155,33 @@ class JobInfo extends Component {
               </div>
             </div>
           </div>
-        );
-    }
+    );
+  }
 }
 
 JobInfo.defaultProps = {
-    job: {
-        constraints: [],
-    },
-    allocations: {},
-    evaluations: {},
+  job: {
+    constraints: [],
+  },
+  allocations: {},
+  evaluations: {},
 };
 
 
-function mapStateToProps({ job, allocations, evaluations }) {
-    return { job, allocations, evaluations };
+function mapStateToProps({
+  job,
+  allocations,
+  evaluations
+}) {
+  return {
+    job,
+    allocations,
+    evaluations
+  };
 }
 
 JobInfo.propTypes = {
-    job: PropTypes.object.isRequired,
+  job: PropTypes.object.isRequired,
 };
 
 export default connect(mapStateToProps)(JobInfo);
