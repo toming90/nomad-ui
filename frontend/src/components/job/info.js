@@ -127,19 +127,6 @@ class JobInfo extends Component {
               </div>
             </div>
 
-            <div className="row">
-              <div className="col-lg-12 col-md-12 col-sm-12 col-sx-12 tab-column">
-                <legend>Task Groups</legend>
-                { (taskGroups.length > 0) ?
-                  <Table
-                    classes="table table-hover table-striped"
-                    headers={ ['Name', 'Count', 'Tasks', 'Meta', 'Restart Policy', 'Constraints'] }
-                    body={ taskGroups }
-                  />
-                  : null
-                }
-              </div>
-            </div>
 
             <div className="row">
               <div className="col-lg-12 col-md-12 col-sm-12 col-sx-12 tab-column">
