@@ -107,11 +107,6 @@ class AllocationInfo extends Component {
     });
 
     allocValues.Job = <NomadLink jobId={ jobId } />;
-    allocValues.TaskGroup = (
-      <NomadLink jobId={ jobId } taskGroupId={ taskGroupId } >
-            {allocation.TaskGroup}
-          </NomadLink>
-    );
     allocValues.Node = <NomadLink nodeId={ nodeId } nodeList={ this.props.nodes } />
     allocValues.ContainerIP = allocation.ContainerIP;
     allocValues.NodeIP = allocation.NodeIP;
