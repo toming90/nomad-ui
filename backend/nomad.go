@@ -296,8 +296,16 @@ func (n *Nomad) watchJobs() {
 				ModifyIndex:       job.ModifyIndex,
 				JobModifyIndex:    job.JobModifyIndex,
 			}
+			log.Printf("jobID: %v\n", nomad_job.ID)
+			log.Printf("lastIndex: %v\n", strings.LastIndex(nomad_job.ID, "_"))
+			var shortJobID string
+			if strings.LastIndex(nomad_job.ID, "_") < 0 {
+				shortJobID = nomad_job.ID
+			} else {
+				shortJobID = nomad_job.ID[:strings.LastIndex(nomad_job.ID, "_")]
+			}
 
-			shortJobID := nomad_job.ID[:strings.LastIndex(nomad_job.ID, "_")]
+			log.Printf("shortJobID: %v\n", shortJobID)
 
 			if _, ok := m[shortJobID]; ok {
 				nomad_job.DefaultPodName = dpNameMap[shortJobID]

@@ -1,0 +1,20 @@
+{
+	"consul": "{{.NOMAD_IP_cobalt}}:8500",
+	"stopTimeout": 5,
+	"services": [
+		{
+			"name": "{{.COBALT_SERVICE_NAME}}",
+			"port": 3000,
+			"health": "echo hello",
+			"poll": 10,
+			"ttl": 25,
+			"interfaces": [
+				"eth0",
+				"cobalt_web"
+			],
+			"tags": [
+				"NOMAD-ALLOC-ID--{{.NOMAD_ALLOC_ID}}"
+			]
+		}
+	]
+}

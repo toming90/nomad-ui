@@ -1,0 +1,33 @@
+{
+   "name":"new-nomad-ui-service-test",
+   "version":"1.0",
+   "schema":"1.0",
+   "app-container":[
+      {
+         "image":"new-nomad-ui",
+         "type":"cobalt.container.app",
+         "dev":{
+            "run-args": [ 
+               "-p", "http/:3000",
+               "-e", "NOMAD_ADDR=http://10.9.44.16:4646",
+               "-e", "CONSUL_ADDR=10.9.44.16:8500"
+            ],
+            "instance": "1"
+         },
+         "aMode":{
+            "run-args": [ 
+               "-p", "http/:3000",
+               "-e", "NOMAD_ADDR=http://10.9.47.23:4646"
+            ],
+            "instance": "2"
+         },
+         "bMode":{
+            "run-args": [ 
+               "-p", "http/:3000",
+               "-e", "NOMAD_ADDR=http://10.9.44.16:4646"
+            ],
+            "instance": "1"
+         }
+      }
+   ]
+}
