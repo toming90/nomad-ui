@@ -10,12 +10,7 @@ module.exports = {
         extensions: ['', '.js', '.jsx', '.css', '.scss']
     },
     module: {
-        preLoaders: [
-          {
-            test: /\.js$/,
-            loader: 'eslint'
-          }
-        ],
+        
         loaders: [
             {
                 test: /\.png$/,
@@ -43,9 +38,7 @@ module.exports = {
             }
         ]
     },
-    eslint: {
-        useEslintrc: true
-    },
+
     postcss: function() {
         return [autoprefixer];
     }

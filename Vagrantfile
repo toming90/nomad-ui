@@ -53,7 +53,7 @@
 # -*- mode: ruby -*-
 # vi: set ft=ruby :
 
-GO_VERSION = "1.6.3"
+#GO_VERSION = "1.6.3"
 
 GLIDE_VERSION = "0.11.1"
 
@@ -72,17 +72,17 @@ Vagrant.configure(2) do |config|
   config.vm.network "forwarded_port", guest: 3000, host: 3000, host_ip: "127.0.0.1"
   config.vm.network "forwarded_port", guest: 3333, host: 3333, host_ip: "127.0.0.1"
 
-  config.vm.provision "shell", inline: <<-SHELL
-    set -xe
+#   config.vm.provision "shell", inline: <<-SHELL
+#     set -xe
 
-    yum install -y epel-release
-    yum install -y golang-#{GO_VERSION}
-    yum install -y git-core
+#     yum install -y epel-release
+#     yum install -y golang-#{GO_VERSION}
+#     yum install -y git-core
 
-    curl -s https://rpm.nodesource.com/setup_4.x | sh -
-    yum install -y nodejs
-    yum install npm  
-SHELL
+#     curl -s https://rpm.nodesource.com/setup_4.x | sh -
+#     yum install -y nodejs
+#     yum install npm  
+# SHELL
 
   # config.vm.synced_folder ".", "/vagrant", type: "nfs"
   # config.vm.synced_folder ".", "/vagrant", :mount_options => ["dmode=755,fmode=755"]

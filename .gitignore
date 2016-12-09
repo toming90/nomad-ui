@@ -5,6 +5,9 @@ npm-debug.log
 bindata_assetfs.go
 dist/
 
+.DS_Store
+
+
 # PyCharm & WebStorm
 .idea
 

@@ -1,16 +1,16 @@
 {
-   "name":"new-nomad-ui-service-test",
+   "name":"DoC-Service",
    "version":"1.0",
    "schema":"1.0",
    "app-container":[
       {
-         "image":"new-nomad-ui",
+         "image":"doc",
          "type":"cobalt.container.app",
          "dev":{
             "run-args": [ 
                "-p", "http/:3000",
-               "-e", "NOMAD_ADDR=http://10.9.44.16:4646",
-               "-e", "CONSUL_ADDR=10.9.44.16:8500"
+               "-e", "NOMAD_ADDR=http://10.9.47.23:4646",
+               "-e", "CONSUL_ADDR=10.9.47.23:8500"
             ],
             "instance": "1"
          },
